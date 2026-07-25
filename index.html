@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#4a2f2b">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Meeshi's Dream Café</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div id="app">
+
+    <!-- Rotate-device notice (portrait-only game) -->
+    <div id="rotate-notice" class="rotate-notice">
+      <div class="rotate-notice__icon">⟳</div>
+      <div class="rotate-notice__text">Please rotate your device to portrait mode</div>
+    </div>
+
+    <!-- Layer stack, back to front -->
+    <div id="scene-layer" class="layer scene-layer"></div>
+    <canvas id="particle-canvas" class="layer particle-canvas"></canvas>
+    <div id="ui-layer" class="layer ui-layer"></div>
+    <div id="popup-layer" class="layer popup-layer"></div>
+    <div id="notification-layer" class="layer notification-layer"></div>
+    <div id="transition-layer" class="layer transition-layer"></div>
+
+  </div>
+
+  <script src="js/core.js" defer></script>
+  <script src="js/systems.js" defer></script>
+  <script src="js/audiofx.js" defer></script>
+  <script src="js/ui.js" defer></script>
+  <script src="js/sceneManager.js" defer></script>
+  <script src="js/scenes.js" defer></script>
+  <script src="js/data.js" defer></script>
+  <script src="js/customer.js" defer></script>
+  <script src="js/customerVisual.js" defer></script>
+  <script src="js/fx.js" defer></script>
+  <script src="js/cafe.js" defer></script>
+  <script src="js/scenes-gameplay.js" defer></script>
+  <script src="js/sprite.js" defer></script>
+  <script src="js/kitchen.js" defer></script>
+  <script src="js/scenes-kitchen.js" defer></script>
+  <script src="js/main.js" defer></script>
+</body>
+</html>
