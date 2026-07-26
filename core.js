@@ -80,8 +80,10 @@ class GameState {
       settings: {
         musicVolume: 0.8,
         sfxVolume: 0.9,
+        ambienceVolume: 0.6,
         vibration: true,
-        language: 'en'
+        language: 'en',
+        reducedMotion: false
       },
       statistics: {
         totalSessions: 0,
@@ -90,7 +92,9 @@ class GameState {
         customersLost: 0,
         perfectServes: 0,
         bestCombo: 0,
-        totalTipsEarned: 0
+        totalTipsEarned: 0,
+        recipesServed: {},
+        objectivesCompleted: 0
       },
       reputation: {
         stars: 3,
@@ -99,7 +103,8 @@ class GameState {
       upgrades: {
         extraSeat: 0,
         servicePace: 0,
-        patienceBoost: 0
+        patienceBoost: 0,
+        trayCapacity: 0
       },
       economy: {
         lifetimeCoinsEarned: 0,
@@ -110,6 +115,24 @@ class GameState {
         date: null,
         objectives: [],
         claimed: []
+      },
+      decorations: {
+        placed: []
+      },
+      environment: {
+        weather: 'sunny'
+      },
+      customerMemory: {},
+      cafeEvents: {
+        lastEventAt: null,
+        eventsSeen: []
+      },
+      specialVisitors: {
+        history: []
+      },
+      tutorial: {
+        completed: false,
+        seenTips: []
       },
       currentScene: 'main-menu'
     };
@@ -372,8 +395,10 @@ class SettingsManager {
 
   get musicVolume() { return this.gameState.get('settings.musicVolume'); }
   get sfxVolume() { return this.gameState.get('settings.sfxVolume'); }
+  get ambienceVolume() { return this.gameState.get('settings.ambienceVolume'); }
   get vibrationEnabled() { return this.gameState.get('settings.vibration'); }
   get language() { return this.gameState.get('settings.language'); }
+  get reducedMotion() { return this.gameState.get('settings.reducedMotion'); }
 
   setMusicVolume(value) {
     const clamped = Math.min(1, Math.max(0, value));
@@ -389,6 +414,13 @@ class SettingsManager {
     this.saveManager.save();
   }
 
+  setAmbienceVolume(value) {
+    const clamped = Math.min(1, Math.max(0, value));
+    this.gameState.set('settings.ambienceVolume', clamped);
+    this.bus.emit('settings:ambienceVolume', clamped);
+    this.saveManager.save();
+  }
+
   setVibration(enabled) {
     this.gameState.set('settings.vibration', enabled);
     this.bus.emit('settings:vibration', enabled);
@@ -398,6 +430,13 @@ class SettingsManager {
   setLanguage(langCode) {
     this.gameState.set('settings.language', langCode);
     this.bus.emit('settings:language', langCode);
+    this.saveManager.save();
+  }
+
+  setReducedMotion(enabled) {
+    this.gameState.set('settings.reducedMotion', enabled);
+    this.bus.emit('settings:reducedMotion', enabled);
+    document.documentElement.classList.toggle('reduced-motion', enabled);
     this.saveManager.save();
   }
 
@@ -425,7 +464,10 @@ class LocalizationSystem {
         'settings.title': 'Settings',
         'settings.music': 'Music Volume',
         'settings.sfx': 'Sound Effects',
+        'settings.ambience': 'Ambience Volume',
         'settings.vibration': 'Vibration',
+        'settings.reducedMotion': 'Reduced Motion',
+        'settings.language': 'Language',
         'settings.reset': 'Reset Save',
         'settings.back': 'Back',
         'credits.title': 'Credits',
@@ -449,7 +491,10 @@ class LocalizationSystem {
         'settings.title': 'Settings',
         'settings.music': 'Music ki Awaaz',
         'settings.sfx': 'Sound Effects',
+        'settings.ambience': 'Ambience ki Awaaz',
         'settings.vibration': 'Vibration',
+        'settings.reducedMotion': 'Kam Harkat Mode',
+        'settings.language': 'Zaban',
         'settings.reset': 'Save Reset Karein',
         'settings.back': 'Wapas',
         'credits.title': 'Credits',

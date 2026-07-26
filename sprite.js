@@ -56,9 +56,10 @@ function registerPlayerSpriteAssets() {
    sprite-based actor.
    ========================================================================== */
 class SpriteAnimator {
-  constructor(imgEl, assetLoader) {
+  constructor(imgEl, assetLoader, animationSystem) {
     this.imgEl = imgEl;
     this.assetLoader = assetLoader;
+    this.animationSystem = animationSystem;
     this._clip = null;
     this._frameKeys = [];
     this._frameIndex = 0;
@@ -74,6 +75,8 @@ class SpriteAnimator {
     const config = PLAYER_CLIP_CONFIG[clipName];
     if (!config) { console.warn(`[SpriteAnimator] unknown clip "${clipName}"`); return; }
 
+    const isClipChange = this._clip !== null && this._clip !== clipName;
+
     this._clip = clipName;
     this._frameKeys = config.frames.map((frameIdx) => `meeshi-${clipName}-${frameIdx}`);
     this._frameDurationMs = 1000 / config.fps;
@@ -82,6 +85,16 @@ class SpriteAnimator {
     this._elapsedMs = 0;
     this._playing = true;
     this._onComplete = onComplete || null;
+
+    if (isClipChange && this.animationSystem) {
+      // Smooth crossfade instead of a hard snap between animations.
+      this.animationSystem.clear(this.imgEl);
+      const state = { o: 1 };
+      this.animationSystem.add({
+        target: state, props: { o: 0.35 }, duration: 70, easing: Easing.quadOut, yoyo: true,
+        onUpdate: () => { this.imgEl.style.opacity = state.o; }
+      });
+    }
     this._applyFrame();
   }
 
@@ -128,23 +141,49 @@ class PlayerCharacter {
     this.imgEl.className = 'meeshi-sprite__img';
     this.imgEl.draggable = false;
     this.element.appendChild(this.imgEl);
-    this.animator = new SpriteAnimator(this.imgEl, ctx.assetLoader);
+    this.animator = new SpriteAnimator(this.imgEl, ctx.assetLoader, ctx.animationSystem);
+    this._breathTween = null;
     this.idle();
   }
 
-  idle() { this.animator.play('idle'); }
-  walk() { this.animator.play('walk'); }
-  clean() { this.animator.play('clean'); }
+  _startBreathing() {
+    if (this.ctx.settingsManager.reducedMotion) return;
+    if (this._breathTween && !this._breathTween.done) return;
+    this._breathTween = this.ctx.animationSystem.breathing(this.imgEl, 0.025, 2600);
+  }
+
+  _stopBreathing() {
+    if (this._breathTween) { this.ctx.animationSystem.clear(this.imgEl); this._breathTween = null; }
+    this.imgEl.style.transform = '';
+  }
+
+  idle() {
+    this.animator.play('idle');
+    this._startBreathing();
+  }
+
+  walk() {
+    this._stopBreathing();
+    this.animator.play('walk');
+  }
+
+  clean() {
+    this._stopBreathing();
+    this.animator.play('clean');
+  }
 
   wave(onComplete) {
+    this._stopBreathing();
     this.animator.play('wave', { onComplete: () => { this.idle(); if (onComplete) onComplete(); } });
   }
 
   serve(onComplete) {
+    this._stopBreathing();
     this.animator.play('serve', { onComplete: () => { this.idle(); if (onComplete) onComplete(); } });
   }
 
   celebrate(onComplete) {
+    this._stopBreathing();
     this.animator.play('celebrate', { onComplete: () => { this.idle(); if (onComplete) onComplete(); } });
   }
 

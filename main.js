@@ -7,9 +7,13 @@
   const timeManager = new TimeManager();
   const saveManager = new SaveManager(bus, gameState);
 
-  saveManager.load();
+  const loadResult = saveManager.load();
+  if (!loadResult.loaded && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    gameState.data.settings.reducedMotion = true;
+  }
 
   const settingsManager = new SettingsManager(bus, gameState, saveManager);
+  document.documentElement.classList.toggle('reduced-motion', settingsManager.reducedMotion);
   const localization = new LocalizationSystem(settingsManager);
 
   // ---- Systems ----
@@ -32,6 +36,14 @@
   const inventoryFoundation = new InventoryFoundation(gameState);
   const upgradeManager = new UpgradeManager(bus, gameState, saveManager);
   const dailyObjectivesManager = new DailyObjectivesManager(bus, gameState, saveManager);
+  const decorationManager = new DecorationManager(bus, gameState, saveManager);
+  const dayNightManager = new DayNightManager(timeManager);
+  const weatherManager = new WeatherManager(bus, gameState, saveManager);
+  const achievementManager = new AchievementManager(bus, gameState, saveManager);
+  const dailyLoginManager = new DailyLoginManager(bus, gameState, saveManager, unlockManager);
+  const customerMemoryManager = new CustomerMemoryManager(gameState);
+  const cafeEventManager = new CafeEventManager(bus, gameState, saveManager, weatherManager);
+  const tutorialManager = new TutorialManager(bus, gameState, saveManager);
 
   // Meeshi's sprite frames join the same AssetManifest/AssetLoader every
   // other asset uses — must happen before LoadingScene kicks off loadAll().
@@ -59,12 +71,36 @@
     unlockManager,
     inventoryFoundation,
     upgradeManager,
-    dailyObjectivesManager
+    dailyObjectivesManager,
+    decorationManager,
+    dayNightManager,
+    weatherManager,
+    achievementManager,
+    dailyLoginManager,
+    customerMemoryManager,
+    cafeEventManager,
+    tutorialManager
   };
 
   // Make sure whatever the player already unlocked by level is reflected
   // (covers first boot on this feature set, and any future level-up while offline).
   unlockManager.syncToLevel(gameState.data.progression.level);
+
+  // Event-driven tutorial hints — fire once, wherever the player happens to be.
+  bus.on('kitchen:trayAdded', () => showTutorialHint(ctx, 'first-prep-done'));
+  bus.on('customer:served', () => showTutorialHint(ctx, 'first-serve-done'));
+  bus.on('player:levelup', () => showTutorialHint(ctx, 'level-up-shop'));
+  bus.on('unlocks:new', (items) => {
+    if (items.some((u) => u.kind === 'decoration')) showTutorialHint(ctx, 'decoration-unlocked');
+  });
+
+  // A failed save should never be silent — this is the player's progress.
+  bus.on('save:error', () => {
+    notificationSystem.show('Couldn\u2019t save your progress \u2014 check your device storage.', 'error', 3200);
+  });
+  bus.on('save:unavailable', () => {
+    notificationSystem.show('Saving isn\u2019t available right now \u2014 progress won\u2019t persist this session.', 'error', 3600);
+  });
 
   // The café gameplay loop and kitchen gameplay are session-persistent —
   // shared by both CafeScene (dining room) and KitchenScene (cooking) so a

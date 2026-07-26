@@ -36,14 +36,28 @@ class KitchenScene extends Scene {
           <div class="station-header">\ud83c\udff5\ufe0f <span>Kettle</span></div>
           <div class="station-body"></div>
         </div>
+        <div class="station" data-station="drink">
+          <div class="station-header">\ud83e\uddc3 <span>Juice Press</span></div>
+          <div class="station-body"></div>
+        </div>
         <div class="station" data-station="dessert">
-          <div class="station-header">\ud83c\udf70 <span>Pastry Counter</span></div>
+          <div class="station-header">\ud83c\udf70 <span>Bakery &amp; Dessert Counter</span></div>
           <div class="station-body"></div>
         </div>
       </div>
 
-      <button class="icon-btn tidy-btn" aria-label="Tidy Up">\ud83e\uddf9</button>
-      <div class="kitchen-tray"></div>
+      <div class="kitchen-sink" data-action="tidy">
+        <span class="kitchen-sink-icon">\ud83e\uddfc</span>
+        <span class="kitchen-sink-label">Cleaning Sink</span>
+      </div>
+      <div class="kitchen-serving-counter">
+        <span class="kitchen-serving-icon">\ud83d\udecd\ufe0f</span>
+        <span class="kitchen-serving-label">Serving Counter</span>
+      </div>
+      <div class="kitchen-tray">
+        <span class="tray-capacity-label"></span>
+        <div class="tray-items"></div>
+      </div>
     `;
 
     this.coinsEl = this.element.querySelector('.hud-coins');
@@ -51,17 +65,19 @@ class KitchenScene extends Scene {
     this.levelFillEl = this.element.querySelector('.hud-level-fill');
     this.comboEl = this.element.querySelector('.hud-combo');
     this.ordersStripEl = this.element.querySelector('.kitchen-orders-strip');
-    this.trayEl = this.element.querySelector('.kitchen-tray');
+    this.trayEl = this.element.querySelector('.tray-items');
+    this.trayCapacityLabelEl = this.element.querySelector('.tray-capacity-label');
     this.stationBodies = {
       coffee: this.element.querySelector('[data-station="coffee"] .station-body'),
       tea: this.element.querySelector('[data-station="tea"] .station-body'),
+      drink: this.element.querySelector('[data-station="drink"] .station-body'),
       dessert: this.element.querySelector('[data-station="dessert"] .station-body')
     };
 
     this.ctx.touchManager.bindButton(this.element.querySelector('.dining-btn'), () => { this.ctx.audioManager.playSfx('click'); this.ctx.sceneManager.goTo('cafe'); });
     this.ctx.touchManager.bindButton(this.element.querySelector('.objectives-btn'), () => { this.ctx.audioManager.playSfx('click'); openObjectivesPopup(this.ctx); });
     this.ctx.touchManager.bindButton(this.element.querySelector('.pause-btn'), () => { this.ctx.audioManager.playSfx('click'); openPausePopup(this.ctx); });
-    this.ctx.touchManager.bindButton(this.element.querySelector('.tidy-btn'), () => this._onTidy());
+    this.ctx.touchManager.bindButton(this.element.querySelector('.kitchen-sink'), () => this._onTidy());
 
     this.player = new PlayerCharacter(this.ctx);
     this.element.appendChild(this.player.element);
@@ -69,11 +85,12 @@ class KitchenScene extends Scene {
     this._holdState = {
       coffee: { holding: false, elapsedMs: 0 },
       tea: { holding: false, elapsedMs: 0 },
+      drink: { holding: false, elapsedMs: 0 },
       dessert: { holding: false, elapsedMs: 0 }
     };
     this._lastTidyAt = 0;
     this._dragGhost = null;
-    this._renderedStationKey = { coffee: '', tea: '', dessert: '' };
+    this._renderedStationKey = { coffee: '', tea: '', drink: '', dessert: '' };
 
     this._bindKitchenEvents();
   }
@@ -84,6 +101,7 @@ class KitchenScene extends Scene {
       this.ctx.audioManager.playSfx('burned');
       this.ctx.notificationSystem.show('Burned! That order needs to be restarted.', 'error', 2000);
       this._flashStation(station);
+      CameraFX.shake(this.ctx, this.element, 5, 260);
     });
     this.ctx.bus.on('kitchen:trayFull', () => {
       this.ctx.notificationSystem.show('Tray is full \u2014 deliver something first!', 'error', 1800);
@@ -101,12 +119,17 @@ class KitchenScene extends Scene {
   enter() {
     this._refreshHud();
     this.player.idle();
+    this._ambientHandle = window.setInterval(() => {
+      if (!this.ctx.settingsManager.reducedMotion) this.ctx.particles.spawnAmbient(1);
+    }, 1100);
+    showTutorialHint(this.ctx, 'kitchen-intro');
   }
 
   exit() {
     super.exit();
     this.ctx.uiLayer.clear('popup');
     this._endAnyHold();
+    window.clearInterval(this._ambientHandle);
   }
 
   update(deltaSec) {
@@ -117,6 +140,7 @@ class KitchenScene extends Scene {
     this._renderStations();
     this._renderTray();
     this._refreshHud();
+    this.ctx.dayNightManager.applyTo(this.element);
   }
 
   /* --------------------------- HUD --------------------------- */
@@ -149,7 +173,8 @@ class KitchenScene extends Scene {
   _renderOrders() {
     const orders = this.ctx.kitchenGameplay.unstartedOrders();
     this.ordersStripEl.innerHTML = orders.map((c) => `
-      <div class="order-ticket tappable" data-customer="${c.id}">
+      <div class="order-ticket tappable ${c.patienceRatio() <= EconomyBalancing.angryThresholdRatio ? 'order-ticket--urgent' : ''}" data-customer="${c.id}">
+        ${c.personalityDef.icon ? `<span class="ticket-personality">${c.personalityDef.icon}</span>` : ''}
         <span class="ticket-face">${c.face}</span>
         <span class="ticket-emoji">${c.order.emoji}</span>
       </div>
@@ -192,9 +217,10 @@ class KitchenScene extends Scene {
     const body = this.stationBodies[station];
     const fillEl = body.querySelector('.station-machine-fill');
     if (!fillEl) return;
-    const ratio = this._holdState[station].elapsedMs / step.holdMs;
+    const holdMs = this.ctx.kitchenGameplay.effectiveHoldMs(step);
+    const ratio = this._holdState[station].elapsedMs / holdMs;
     fillEl.style.height = `${Math.min(140, ratio * 100)}%`;
-    const burnLimit = 1 + (KitchenBalancing.burnGraceMs / step.holdMs);
+    const burnLimit = 1 + (KitchenBalancing.burnGraceMs / holdMs);
     fillEl.className = 'station-machine-fill' +
       (ratio >= burnLimit ? ' burn-zone' : Math.abs(1 - ratio) <= 0.08 ? ' perfect-zone' : '');
   }
@@ -233,6 +259,7 @@ class KitchenScene extends Scene {
         <span class="station-customer-face">${session.customer.face}</span>
         <span class="station-step-label">${step.label}</span>
         <span>${session.recipe.emoji}</span>
+        <button class="icon-btn station-trash-btn" aria-label="Discard">\ud83d\uddd1\ufe0f</button>
       </div>
     `;
 
@@ -247,6 +274,7 @@ class KitchenScene extends Scene {
       `;
       const btn = body.querySelector('[data-hold]');
       this._bindHold(btn, station);
+      this._bindTrashButton(body, station);
       return;
     }
 
@@ -260,6 +288,7 @@ class KitchenScene extends Scene {
         </div>
       `;
       body.querySelectorAll('.ingredient-chip').forEach((chip) => this._bindDrag(chip, station));
+      this._bindTrashButton(body, station);
       return;
     }
 
@@ -273,6 +302,7 @@ class KitchenScene extends Scene {
         this.ctx.kitchenGameplay.resolveNonMachineStep(station, PrepStepResult.PERFECT);
         this._renderedStationKey[station] = '';
       });
+      this._bindTrashButton(body, station);
       return;
     }
 
@@ -288,10 +318,24 @@ class KitchenScene extends Scene {
           this._renderedStationKey[station] = '';
           this.ctx.audioManager.playSfx('serve');
           this.ctx.notificationSystem.show('Ready on the tray!', 'success', 1400);
+        } else if (this.ctx.kitchenGameplay.tray.length >= this.ctx.upgradeManager.trayCapacityValue()) {
+          this.ctx.notificationSystem.show('Tray is full \u2014 deliver something first!', 'error', 1800);
         }
       });
+      this._bindTrashButton(body, station);
       return;
     }
+  }
+
+  _bindTrashButton(body, station) {
+    const btn = body.querySelector('.station-trash-btn');
+    if (!btn) return;
+    this.ctx.touchManager.bindButton(btn, () => {
+      this.ctx.kitchenGameplay.cancelPrep(station);
+      this._renderedStationKey[station] = '';
+      this.ctx.audioManager.playSfx('wrong');
+      this.ctx.notificationSystem.show('Order discarded.', 'info', 1400);
+    });
   }
 
   _bindHold(btn, station) {
@@ -300,7 +344,9 @@ class KitchenScene extends Scene {
       this._holdState[station].holding = true;
       this._holdState[station].elapsedMs = 0;
       btn.classList.add('pressed');
-      this.ctx.audioManager.playSfx('steam');
+      this.ctx.audioManager.playSfx(station === 'dessert' ? 'oven' : 'steam');
+      const rect = btn.getBoundingClientRect();
+      this.ctx.particles.spawnBurst(rect.left + rect.width / 2, rect.top, 6, ['rgba(253,243,227,0.6)', 'rgba(253,243,227,0.35)']);
     };
     const stop = () => {
       if (!this._holdState[station].holding) return;
@@ -311,7 +357,7 @@ class KitchenScene extends Scene {
       const step = session && session.currentStep();
       if (!step || step.kind !== 'machine') return;
 
-      const ratio = this._holdState[station].elapsedMs / step.holdMs;
+      const ratio = this._holdState[station].elapsedMs / this.ctx.kitchenGameplay.effectiveHoldMs(step);
       const outcome = this.ctx.kitchenGameplay.resolveMachineStep(station, ratio);
       this._renderedStationKey[station] = '';
       if (outcome && !outcome.burned) {
@@ -381,10 +427,14 @@ class KitchenScene extends Scene {
 
   _renderTray() {
     const tray = this.ctx.kitchenGameplay.tray;
+    const capacity = this.ctx.upgradeManager.trayCapacityValue();
+    this.trayCapacityLabelEl.textContent = `Tray ${tray.length}/${capacity}`;
+
     this.trayEl.innerHTML = tray.map((item, i) => {
-      const stars = '\u2b50'.repeat(item.quality >= KitchenBalancing.qualityPerfectThreshold ? 3 : item.quality >= 0.7 ? 2 : 1);
+      const isPerfectQuality = item.quality >= KitchenBalancing.qualityPerfectThreshold;
+      const stars = '\u2b50'.repeat(isPerfectQuality ? 3 : item.quality >= 0.7 ? 2 : 1);
       return `
-        <div class="tray-slot" data-tray-index="${i}">
+        <div class="tray-slot ${isPerfectQuality ? 'tray-slot--sparkle' : ''}" data-tray-index="${i}">
           <span class="tray-emoji">${item.session.recipe.emoji}</span>
           <span class="tray-face">${item.session.customer.face}</span>
           <span class="tray-stars">${stars}</span>

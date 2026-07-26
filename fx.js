@@ -1,6 +1,39 @@
 'use strict';
 
 /* ==========================================================================
+   Speech bubbles — small ephemeral reaction bubbles above a customer's
+   table ("...", "!", reaction emoji). Visually distinct from FloatingText
+   (which drifts/fades) — speech bubbles pop in, hold briefly, pop out.
+   ========================================================================== */
+function spawnSpeechBubble(ctx, anchorEl, text) {
+  const bubble = document.createElement('div');
+  bubble.className = 'speech-bubble';
+  bubble.textContent = text;
+  anchorEl.appendChild(bubble);
+
+  const state = { s: 0.4, o: 0 };
+  ctx.animationSystem.add({
+    target: state,
+    props: { s: 1, o: 1 },
+    duration: 220,
+    easing: Easing.elasticOut,
+    onUpdate: () => { bubble.style.transform = `translateX(-50%) scale(${state.s})`; bubble.style.opacity = state.o; },
+    onComplete: () => {
+      window.setTimeout(() => {
+        ctx.animationSystem.add({
+          target: state,
+          props: { s: 0.6, o: 0 },
+          duration: 220,
+          easing: Easing.quadIn,
+          onUpdate: () => { bubble.style.transform = `translateX(-50%) scale(${state.s})`; bubble.style.opacity = state.o; },
+          onComplete: () => bubble.remove()
+        });
+      }, 900);
+    }
+  });
+}
+
+/* ==========================================================================
    FloatingText — spawns a small label that drifts up and fades out from a
    given point in a container. Used for "+coins", "+XP", "Perfect!", etc.
    ========================================================================== */
@@ -34,6 +67,7 @@ function spawnFloatingText(ctx, containerEl, { x, y, text, className = '' }) {
    ========================================================================== */
 const CameraFX = {
   zoomPulse(ctx, targetEl, amount = 0.03, duration = 260) {
+    if (ctx.settingsManager.reducedMotion) return;
     const state = { s: 1 };
     ctx.animationSystem.add({
       target: state,
@@ -47,6 +81,7 @@ const CameraFX = {
   },
 
   shake(ctx, targetEl, strength = 5, duration = 260) {
+    if (ctx.settingsManager.reducedMotion) return;
     ctx.animationSystem.shake(targetEl, strength, duration);
   }
 };

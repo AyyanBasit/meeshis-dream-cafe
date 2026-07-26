@@ -182,7 +182,7 @@ class MainMenuScene extends Scene {
     this.exitBtn.classList.remove('visible');
 
     this._ambientHandle = window.setInterval(() => {
-      this.ctx.particles.spawnAmbient(1);
+      if (!this.ctx.settingsManager.reducedMotion) this.ctx.particles.spawnAmbient(1);
     }, 500);
   }
 
@@ -265,8 +265,26 @@ class SettingsScene extends Scene {
         </div>
 
         <div class="setting-row">
+          <span class="setting-label ambience-label"></span>
+          <div class="slider-track" data-slider="ambience">
+            <div class="slider-fill"></div>
+            <div class="slider-handle"></div>
+          </div>
+        </div>
+
+        <div class="setting-row">
           <span class="setting-label vibration-label"></span>
           <div class="toggle" data-toggle="vibration"><div class="toggle-knob"></div></div>
+        </div>
+
+        <div class="setting-row">
+          <span class="setting-label reduced-motion-label"></span>
+          <div class="toggle" data-toggle="reducedMotion"><div class="toggle-knob"></div></div>
+        </div>
+
+        <div class="setting-row">
+          <span class="setting-label language-label"></span>
+          <button class="btn btn--ghost btn--small language-btn"></button>
         </div>
 
         <div class="panel-actions">
@@ -279,18 +297,34 @@ class SettingsScene extends Scene {
     this.titleEl = this.element.querySelector('.panel-title');
     this.musicLabel = this.element.querySelector('.music-label');
     this.sfxLabel = this.element.querySelector('.sfx-label');
+    this.ambienceLabel = this.element.querySelector('.ambience-label');
     this.vibrationLabel = this.element.querySelector('.vibration-label');
+    this.reducedMotionLabel = this.element.querySelector('.reduced-motion-label');
+    this.languageLabel = this.element.querySelector('.language-label');
+    this.languageBtn = this.element.querySelector('.language-btn');
     this.resetBtn = this.element.querySelector('.reset-btn');
     this.vibrationToggle = this.element.querySelector('[data-toggle="vibration"]');
+    this.reducedMotionToggle = this.element.querySelector('[data-toggle="reducedMotion"]');
 
     this.musicSlider = this._buildSlider('music', (value) => this.ctx.settingsManager.setMusicVolume(value));
     this.sfxSlider = this._buildSlider('sfx', (value) => this.ctx.settingsManager.setSfxVolume(value));
+    this.ambienceSlider = this._buildSlider('ambience', (value) => this.ctx.settingsManager.setAmbienceVolume(value));
 
     this.ctx.touchManager.bindButton(this.backBtn, () => this.ctx.sceneManager.goTo('main-menu'));
+    this.ctx.touchManager.bindButton(this.languageBtn, () => {
+      const next = this.ctx.settingsManager.language === 'en' ? 'ur-roman' : 'en';
+      this.ctx.settingsManager.setLanguage(next);
+      this._applyText();
+    });
     this.ctx.touchManager.bindButton(this.vibrationToggle, () => {
       const next = !this.ctx.settingsManager.vibrationEnabled;
       this.ctx.settingsManager.setVibration(next);
       this.ctx.settingsManager.vibrate();
+      this._refreshToggle();
+    });
+    this.ctx.touchManager.bindButton(this.reducedMotionToggle, () => {
+      const next = !this.ctx.settingsManager.reducedMotion;
+      this.ctx.settingsManager.setReducedMotion(next);
       this._refreshToggle();
     });
     this.ctx.touchManager.bindButton(this.resetBtn, () => this._confirmReset());
@@ -326,6 +360,7 @@ class SettingsScene extends Scene {
 
   _refreshToggle() {
     this.vibrationToggle.classList.toggle('on', this.ctx.settingsManager.vibrationEnabled);
+    this.reducedMotionToggle.classList.toggle('on', this.ctx.settingsManager.reducedMotion);
   }
 
   async _confirmReset() {
@@ -336,22 +371,33 @@ class SettingsScene extends Scene {
     if (!confirmed) return;
 
     this.ctx.saveManager.resetSave();
+    this._applyText();
     this.musicSlider.set(this.ctx.settingsManager.musicVolume);
     this.sfxSlider.set(this.ctx.settingsManager.sfxVolume);
+    this.ambienceSlider.set(this.ctx.settingsManager.ambienceVolume);
     this._refreshToggle();
     this.ctx.notificationSystem.show(this.ctx.localization.t('notification.saveReset'), 'success');
   }
 
-  enter() {
+  _applyText() {
     this.titleEl.textContent = this.ctx.localization.t('settings.title');
     this.musicLabel.textContent = this.ctx.localization.t('settings.music');
     this.sfxLabel.textContent = this.ctx.localization.t('settings.sfx');
+    this.ambienceLabel.textContent = this.ctx.localization.t('settings.ambience');
     this.vibrationLabel.textContent = this.ctx.localization.t('settings.vibration');
+    this.reducedMotionLabel.textContent = this.ctx.localization.t('settings.reducedMotion');
+    this.languageLabel.textContent = this.ctx.localization.t('settings.language');
+    this.languageBtn.textContent = this.ctx.settingsManager.language === 'en' ? 'English' : 'Roman Urdu';
     this.resetBtn.textContent = this.ctx.localization.t('settings.reset');
     this.backBtn.textContent = this.ctx.localization.t('settings.back');
+  }
+
+  enter() {
+    this._applyText();
 
     this.musicSlider.set(this.ctx.settingsManager.musicVolume);
     this.sfxSlider.set(this.ctx.settingsManager.sfxVolume);
+    this.ambienceSlider.set(this.ctx.settingsManager.ambienceVolume);
     this._refreshToggle();
 
     this.ctx.animationSystem.slideIn(this.element.querySelector('.panel'), 24, 300);

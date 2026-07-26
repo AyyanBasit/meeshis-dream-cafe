@@ -18,6 +18,7 @@ class CafeScene extends Scene {
           <div class="cafe-light"></div>
           <div class="cafe-light"></div>
           <div class="cafe-wall-art"></div>
+          <div class="deco-wall-slots"></div>
         </div>
         <div class="cafe-counter">
           <div class="cafe-counter-top"></div>
@@ -27,6 +28,8 @@ class CafeScene extends Scene {
         <div class="cafe-plant cafe-plant--left">\ud83e\udea4</div>
         <div class="cafe-plant cafe-plant--right">\ud83e\udea4</div>
         <div class="cafe-door" data-door="true">\ud83d\udeaa</div>
+        <div class="deco-floor-slots"></div>
+        <div class="cafe-rain"></div>
         <div class="cafe-floor"></div>
       </div>
 
@@ -40,10 +43,16 @@ class CafeScene extends Scene {
         <div class="hud-stat hud-combo">x1.0</div>
         <div class="hud-buttons">
           <button class="icon-btn kitchen-btn" aria-label="Kitchen">\ud83c\udf73</button>
+          <button class="icon-btn decorate-btn" aria-label="Decorate">\ud83e\udded</button>
           <button class="icon-btn objectives-btn" aria-label="Daily Objectives">\ud83d\udccb</button>
           <button class="icon-btn upgrades-btn" aria-label="Upgrades">\u2b06\ufe0f</button>
           <button class="icon-btn pause-btn" aria-label="Pause">\u275a\u275a</button>
         </div>
+      </div>
+
+      <div class="event-banner hidden">
+        <span class="event-banner-icon"></span>
+        <span class="event-banner-text"></span>
       </div>
 
       <div class="cafe-queue"></div>
@@ -58,11 +67,15 @@ class CafeScene extends Scene {
     this.floorEl = this.element.querySelector('.cafe-floor');
     this.roomEl = this.element.querySelector('.cafe-room');
     this.counterEl = this.element.querySelector('.cafe-counter');
+    this.wallSlotsEl = this.element.querySelector('.deco-wall-slots');
+    this.floorSlotsEl = this.element.querySelector('.deco-floor-slots');
+    this.eventBannerEl = this.element.querySelector('.event-banner');
 
     this.ctx.touchManager.bindButton(this.element.querySelector('.pause-btn'), () => { this._click(); this._openPauseMenu(); });
     this.ctx.touchManager.bindButton(this.element.querySelector('.objectives-btn'), () => { this._click(); this._openObjectives(); });
     this.ctx.touchManager.bindButton(this.element.querySelector('.upgrades-btn'), () => { this._click(); this._openUpgrades(); });
     this.ctx.touchManager.bindButton(this.element.querySelector('.kitchen-btn'), () => { this._click(); this.ctx.sceneManager.goTo('kitchen'); });
+    this.ctx.touchManager.bindButton(this.element.querySelector('.decorate-btn'), () => { this._click(); this._openDecorate(); });
 
     // Meeshi stands by the counter by default, and walks out to deliver.
     this.player = new PlayerCharacter(this.ctx);
@@ -85,6 +98,10 @@ class CafeScene extends Scene {
     this.ctx.bus.on('customer:leaving', ({ customer, angry }) => this._onCustomerLeaving(customer, angry));
     this.ctx.bus.on('customer:spawned', () => this.ctx.audioManager.playSfx('door-bell'));
     this.ctx.bus.on('player:levelup', () => this._onLevelUp());
+    this.ctx.bus.on('achievements:unlocked', (list) => this._onAchievementsUnlocked(list));
+    this.ctx.bus.on('cafeEvent:started', ({ def }) => this._onCafeEventStarted(def));
+    this.ctx.bus.on('cafeEvent:ended', () => this._onCafeEventEnded());
+    this.ctx.bus.on('specialVisitor:arrived', (customer) => this._onSpecialVisitorArrived(customer));
   }
 
   enter() {
@@ -93,11 +110,27 @@ class CafeScene extends Scene {
     if (this._seatElements.length !== this.loop.seating.seats.length) this._buildSeatSlots();
     this.player.idle();
     this._refreshHud();
+    this._ambientHandle = window.setInterval(() => {
+      if (!this.ctx.settingsManager.reducedMotion) this.ctx.particles.spawnAmbient(1);
+    }, 900);
+    this.ctx.weatherManager.rollForNewDayIfNeeded();
+    this._decorRenderKey = '';
+    this._renderDecorations();
+
+    if (!this._dailyRewardOfferedThisSession) {
+      this._dailyRewardOfferedThisSession = true;
+      if (this.ctx.dailyLoginManager.canClaimToday()) {
+        window.setTimeout(() => openDailyRewardPopup(this.ctx), 500);
+      }
+    }
+    this.ctx.achievementManager.checkAll();
+    showTutorialHint(this.ctx, 'welcome-kitchen');
   }
 
   exit() {
     super.exit();
     this.ctx.uiLayer.clear('popup');
+    window.clearInterval(this._ambientHandle);
   }
 
   _buildSeatSlots() {
@@ -127,6 +160,18 @@ class CafeScene extends Scene {
     });
   }
 
+  _renderDecorations() {
+    const placed = this.ctx.gameState.data.decorations.placed;
+    const key = placed.join(',');
+    if (this._decorRenderKey === key) return;
+    this._decorRenderKey = key;
+
+    const wall = this.ctx.decorationManager.placedInSlot('wall');
+    const floor = this.ctx.decorationManager.placedInSlot('floor');
+    this.wallSlotsEl.innerHTML = wall.map((d) => `<span class="deco-item deco-item--wall" title="${d.name}">${d.emoji}</span>`).join('');
+    this.floorSlotsEl.innerHTML = floor.map((d) => `<span class="deco-item deco-item--floor" title="${d.name}">${d.emoji}</span>`).join('');
+  }
+
   update(deltaSec) {
     if (!this.loop) return;
     const deltaMs = deltaSec * 1000;
@@ -138,6 +183,19 @@ class CafeScene extends Scene {
     this._renderPatienceBars();
     this._renderReadyBadges();
     this._refreshHud();
+    this.ctx.dayNightManager.applyTo(this.roomEl);
+    const weather = this.ctx.weatherManager.applyTo(this.roomEl);
+
+    if (this.ctx.cafeEventManager.activeKey) {
+      this.ctx.audioManager.playAmbience('event-music');
+    } else if (weather === 'rain') {
+      this.ctx.audioManager.playAmbience('rain-ambience');
+    } else {
+      const phase = this.ctx.dayNightManager.currentPhase();
+      if (phase === 'morning') this.ctx.audioManager.playAmbience('morning-ambience');
+      else if (phase === 'evening' || phase === 'night') this.ctx.audioManager.playAmbience('evening-ambience');
+      else this.ctx.audioManager.stopAmbience();
+    }
   }
 
   _renderQueue() {
@@ -155,19 +213,46 @@ class CafeScene extends Scene {
     const occupantSlot = seatEl.querySelector('.seat-occupant');
 
     const figureEl = CustomerRenderer.mount(customer);
+    if (customer.specialDef) figureEl.classList.add('customer-figure--special');
     occupantSlot.appendChild(figureEl);
     this._visualByCustomerId.set(customer.id, { el: figureEl });
 
-    // Gentle settle-in instead of popping into existence.
+    const isReturning = this.ctx.customerMemoryManager.isReturning(customer);
+    const greeting = customer.specialDef ? '' : isReturning ? '\ud83d\udc4b' : '\u2026';
+
+    // Walk in from the door instead of popping/fading into existence.
+    const doorEl = this.element.querySelector('.cafe-door');
     figureEl.style.opacity = '0';
-    figureEl.style.transform = 'translateY(14px) scale(0.9)';
-    this.ctx.animationSystem.add({
-      target: { y: 14, s: 0.9, o: 0 },
-      props: { y: 0, s: 1, o: 1 },
-      duration: 360,
-      easing: Easing.cubicOut,
-      onUpdate: (t) => { figureEl.style.transform = `translateY(${t.y}px) scale(${t.s})`; figureEl.style.opacity = t.o; }
-    });
+    if (doorEl) {
+      const doorRect = doorEl.getBoundingClientRect();
+      const seatRect = seatEl.getBoundingClientRect();
+      const startDx = (doorRect.left) - (seatRect.left + seatRect.width / 2);
+      const startDy = (doorRect.top) - (seatRect.top + seatRect.height - 30);
+      CustomerRenderer.setPose(figureEl, 'walking');
+      const state = { x: startDx, y: startDy, o: 0 };
+      figureEl.style.transform = `translate(${state.x}px, ${state.y}px)`;
+      this.ctx.animationSystem.add({
+        target: state,
+        props: { x: 0, y: 0, o: 1 },
+        duration: Math.max(420, customer.walkSpeedMs),
+        easing: Easing.quadOut,
+        onUpdate: () => { figureEl.style.transform = `translate(${state.x}px, ${state.y}px)`; figureEl.style.opacity = state.o; },
+        onComplete: () => {
+          figureEl.style.transform = '';
+          CustomerRenderer.setPose(figureEl, 'idle');
+          if (greeting) spawnSpeechBubble(this.ctx, seatEl, greeting);
+        }
+      });
+    } else {
+      figureEl.style.transform = 'translateY(14px) scale(0.9)';
+      this.ctx.animationSystem.add({
+        target: { y: 14, s: 0.9, o: 0 },
+        props: { y: 0, s: 1, o: 1 },
+        duration: 360,
+        easing: Easing.cubicOut,
+        onUpdate: (t) => { figureEl.style.transform = `translateY(${t.y}px) scale(${t.s})`; figureEl.style.opacity = t.o; }
+      });
+    }
 
     this._buildOrderBubble(seatEl, customer);
     this.ctx.audioManager.playSfx('chair');
@@ -208,13 +293,19 @@ class CafeScene extends Scene {
       fill.className = `patience-fill ${ratio <= EconomyBalancing.angryThresholdRatio ? 'danger' : ratio <= 0.5 ? 'warning' : ''}`;
 
       const visual = this._visualByCustomerId.get(customer.id);
-      if (visual) CustomerRenderer.setPose(visual.el, customer.isAngry ? 'angry' : 'idle');
+      if (visual) {
+        const tier = customer.moodTier();
+        CustomerRenderer.setPose(visual.el, tier === 'angry' ? 'angry' : tier === 'annoyed' ? 'annoyed' : 'idle');
+      }
     }
   }
 
   _onCustomerAngry(customer) {
     const visual = this._visualByCustomerId.get(customer.id);
     if (visual) this.ctx.animationSystem.shake(visual.el, 4, 260);
+    const seatEl = this._seatElements[customer.seatIndex];
+    if (seatEl) spawnSpeechBubble(this.ctx, seatEl, '!');
+    CameraFX.shake(this.ctx, this.roomEl, 3, 200);
   }
 
   _onCustomerReacting(customer) {
@@ -223,6 +314,7 @@ class CafeScene extends Scene {
     if (seatEl) {
       const bubble = seatEl.querySelector('.order-bubble');
       if (bubble) bubble.remove();
+      spawnSpeechBubble(this.ctx, seatEl, customer.happiness > 0.7 ? '\u2764\ufe0f' : customer.happiness > 0 ? '\ud83d\ude42' : '\ud83d\ude20');
     }
     if (!visual) return;
     CustomerRenderer.setPose(visual.el, customer.happiness > 0 ? 'happy' : 'sad');
@@ -234,18 +326,33 @@ class CafeScene extends Scene {
     this._visualByCustomerId.delete(customer.id);
     if (!visual) return;
 
+    if (angry) {
+      CameraFX.shake(this.ctx, this.roomEl, 5, 240);
+      this.ctx.animationSystem.shake(this.player.element, 3, 220);
+    }
     CustomerRenderer.setPose(visual.el, angry ? 'angry' : 'happy');
-    const state = { y: 0, o: 1 };
+
+    const doorEl = this.element.querySelector('.cafe-door');
+    const seatEl = this._seatElements[customer.seatIndex];
+    let targetX = 0, targetY = 16;
+    if (doorEl && seatEl) {
+      const doorRect = doorEl.getBoundingClientRect();
+      const seatRect = seatEl.getBoundingClientRect();
+      targetX = doorRect.left - (seatRect.left + seatRect.width / 2);
+      targetY = doorRect.top - (seatRect.top + seatRect.height - 30);
+    }
+
+    CustomerRenderer.setFlip(visual.el, targetX < 0);
+    const state = { x: 0, y: 0, o: 1 };
     this.ctx.animationSystem.add({
       target: state,
-      props: { y: 16, o: 0 },
-      duration: 420,
+      props: { x: targetX, y: targetY, o: 0 },
+      duration: Math.max(380, customer.walkSpeedMs),
       easing: Easing.quadIn,
-      onUpdate: () => { visual.el.style.transform = `translateY(${state.y}px)`; visual.el.style.opacity = state.o; },
+      onUpdate: () => { visual.el.style.transform = `translate(${state.x}px, ${state.y}px)`; visual.el.style.opacity = state.o; },
       onComplete: () => CustomerRenderer.remove(visual.el)
     });
 
-    const seatEl = this._seatElements[customer.seatIndex];
     if (seatEl) {
       const bubble = seatEl.querySelector('.order-bubble');
       if (bubble) this.ctx.animationSystem.fadeOut(bubble, 250, 0, () => bubble.remove());
@@ -266,6 +373,7 @@ class CafeScene extends Scene {
       if (trayItem && !badge) {
         badge = document.createElement('button');
         badge.className = 'ready-badge';
+        if (trayItem.quality >= KitchenBalancing.qualityPerfectThreshold) badge.classList.add('order-bubble--sparkle');
         badge.textContent = '\ud83d\udd14';
         seatEl.appendChild(badge);
         this.ctx.touchManager.bindButton(badge, () => this._onDeliverTap(customer, trayItem));
@@ -290,15 +398,41 @@ class CafeScene extends Scene {
     const dx = (seatRect.left + seatRect.width / 2) - (homeRect.left + homeRect.width / 2);
     const dy = (seatRect.top + seatRect.height / 2) - (homeRect.top + homeRect.height / 2);
 
+    this._walkPlayerTo(dx, dy, () => this._deliverAtTable(customer, trayItem, { x: dx, y: dy }));
+  }
+
+  /** Two-leg waypoint walk (aisle-first, then across to the table) instead
+   *  of a single diagonal tween — a lightweight stand-in for real
+   *  pathfinding that still reads as "walking the room" rather than
+   *  floating through furniture. */
+  _walkPlayerTo(dx, dy, onArrive) {
     this.player.walk();
-    const walkState = { x: 0, y: 0 };
+    this.player.element.classList.toggle('facing-left', dx < 0);
+    this.ctx.audioManager.playSfx('footstep');
+
+    const state = { x: 0, y: 0 };
+    const applyTransform = () => { this.player.element.style.transform = `translate(${state.x}px, ${state.y}px)`; };
+    const totalDist = Math.abs(dx) + Math.abs(dy);
+    const leg1Duration = totalDist > 0 ? Math.max(160, 480 * (Math.abs(dy) / totalDist)) : 0;
+    const leg2Duration = totalDist > 0 ? Math.max(160, 480 * (Math.abs(dx) / totalDist)) : 260;
+
     this.ctx.animationSystem.add({
-      target: walkState,
-      props: { x: dx, y: dy },
-      duration: 480,
-      easing: Easing.quadOut,
-      onUpdate: () => { this.player.element.style.transform = `translate(${walkState.x}px, ${walkState.y}px)`; },
-      onComplete: () => this._deliverAtTable(customer, trayItem, walkState)
+      target: state,
+      props: { y: dy },
+      duration: leg1Duration,
+      easing: Easing.linear,
+      onUpdate: applyTransform,
+      onComplete: () => {
+        this.ctx.audioManager.playSfx('footstep');
+        this.ctx.animationSystem.add({
+          target: state,
+          props: { x: dx },
+          duration: leg2Duration,
+          easing: Easing.linear,
+          onUpdate: applyTransform,
+          onComplete: onArrive
+        });
+      }
     });
   }
 
@@ -309,8 +443,9 @@ class CafeScene extends Scene {
 
       if (outcome && outcome.delivered) {
         this.ctx.audioManager.playSfx('coin');
-        if (outcome.quality >= KitchenBalancing.qualityPerfectThreshold) {
+        if (outcome.result.isPerfect) {
           this.ctx.audioManager.playSfx('perfect');
+          this.player.celebrate();
         }
         if (seatEl) {
           const rect = seatEl.getBoundingClientRect();
@@ -326,23 +461,41 @@ class CafeScene extends Scene {
             outcome.quality >= KitchenBalancing.qualityPerfectThreshold ? 16 : 8,
             ['rgba(224,168,62,0.9)', 'rgba(253,243,227,0.9)']
           );
+          if (outcome.quality >= KitchenBalancing.qualityPerfectThreshold) {
+            CameraFX.zoomPulse(this.ctx, this.roomEl, 0.015, 220);
+          }
         }
         if (this.loop.combo.count > 1) this.ctx.audioManager.playSfx('combo');
       } else {
         this.ctx.notificationSystem.show('That customer already left \u2014 no reward.', 'error', 1800);
       }
 
-      // Walk back to the counter.
+      // Walk back to the counter via the same two-leg aisle path, reversed.
       const backState = { x: walkState.x, y: walkState.y };
+      const applyBack = () => { this.player.element.style.transform = `translate(${backState.x}px, ${backState.y}px)`; };
+      this.player.walk();
+      this.player.element.classList.toggle('facing-left', walkState.x > 0);
       this.ctx.animationSystem.add({
         target: backState,
-        props: { x: 0, y: 0 },
-        duration: 420,
-        easing: Easing.quadIn,
-        onUpdate: () => { this.player.element.style.transform = `translate(${backState.x}px, ${backState.y}px)`; },
-        onComplete: () => { this.player.idle(); this._meeshiBusy = false; }
+        props: { x: 0 },
+        duration: 260,
+        easing: Easing.linear,
+        onUpdate: applyBack,
+        onComplete: () => {
+          this.ctx.animationSystem.add({
+            target: backState,
+            props: { y: 0 },
+            duration: 260,
+            easing: Easing.linear,
+            onUpdate: applyBack,
+            onComplete: () => {
+              this.player.element.classList.remove('facing-left');
+              this.player.idle();
+              this._meeshiBusy = false;
+            }
+          });
+        }
       });
-      this.player.walk();
     });
   }
 
@@ -351,6 +504,42 @@ class CafeScene extends Scene {
     CameraFX.zoomPulse(this.ctx, this.roomEl, 0.02, 320);
     this.player.celebrate();
     this.ctx.notificationSystem.show('Level Up!', 'success', 1800);
+  }
+
+  _onAchievementsUnlocked(list) {
+    // Queue them one at a time so multiple simultaneous unlocks don't overlap.
+    list.forEach((def, i) => {
+      window.setTimeout(() => {
+        this.ctx.audioManager.playSfx('achievement');
+        CameraFX.zoomPulse(this.ctx, this.roomEl, 0.02, 300);
+        showAchievementPopup(this.ctx, def);
+      }, i * 1400);
+    });
+  }
+
+  _onCafeEventStarted(def) {
+    this.eventBannerEl.querySelector('.event-banner-icon').textContent = def.icon;
+    this.eventBannerEl.querySelector('.event-banner-text').textContent = def.bannerText;
+    this.eventBannerEl.classList.remove('hidden');
+    this.ctx.animationSystem.slideIn(this.eventBannerEl, -20, 320);
+    this.ctx.audioManager.playSfx('combo');
+    this.ctx.notificationSystem.show(`${def.icon} ${def.name} has started!`, 'info', 2200);
+  }
+
+  _onCafeEventEnded() {
+    this.ctx.animationSystem.fadeOut(this.eventBannerEl, 260, 0, () => this.eventBannerEl.classList.add('hidden'));
+  }
+
+  _onSpecialVisitorArrived(customer) {
+    const seatEl = this._seatElements[customer.seatIndex];
+    if (!seatEl) return;
+    this.ctx.audioManager.playSfx('rare-customer');
+    this.ctx.settingsManager.vibrate([0, 15, 30, 15]);
+    window.setTimeout(() => {
+      spawnSpeechBubble(this.ctx, seatEl, customer.specialDef.dialogueGreeting);
+    }, 500);
+    this.ctx.notificationSystem.show(`${customer.specialDef.icon} A ${customer.specialDef.name} has arrived!`, 'success', 2400);
+    CameraFX.zoomPulse(this.ctx, this.roomEl, 0.015, 280);
   }
 
   _refreshHud() {
@@ -378,5 +567,9 @@ class CafeScene extends Scene {
 
   _openUpgrades() {
     openUpgradesPopup(this.ctx, { onSeatUpgrade: () => this.loop.applyExtraSeatUpgrade() });
+  }
+
+  _openDecorate() {
+    openDecoratePopup(this.ctx, { onChange: () => { this._decorRenderKey = ''; this._renderDecorations(); } });
   }
 }

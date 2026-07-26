@@ -22,9 +22,17 @@ const AssetManifest = {
     { key: 'combo', src: 'assets/audio/combo.mp3' },
     { key: 'levelup', src: 'assets/audio/levelup.mp3' },
     { key: 'steam', src: 'assets/audio/steam.mp3' },
+    { key: 'oven', src: 'assets/audio/oven.mp3' },
+    { key: 'footstep', src: 'assets/audio/footstep.mp3' },
     { key: 'serve', src: 'assets/audio/serve.mp3' },
     { key: 'burned', src: 'assets/audio/burned.mp3' },
-    { key: 'wrong', src: 'assets/audio/wrong.mp3' }
+    { key: 'wrong', src: 'assets/audio/wrong.mp3' },
+    { key: 'achievement', src: 'assets/audio/achievement.mp3' },
+    { key: 'rare-customer', src: 'assets/audio/rare-customer.mp3' },
+    { key: 'rain-ambience', src: 'assets/audio/rain-ambience.mp3', loop: true },
+    { key: 'morning-ambience', src: 'assets/audio/morning-ambience.mp3', loop: true },
+    { key: 'evening-ambience', src: 'assets/audio/evening-ambience.mp3', loop: true },
+    { key: 'event-music', src: 'assets/audio/event-music.mp3', loop: true }
   ]
 };
 
@@ -415,10 +423,15 @@ class AudioManager {
     this.settingsManager = settingsManager;
     this._currentMusicKey = null;
     this._musicEl = null;
+    this._ambienceEl = null;
+    this._ambienceKey = null;
     this._muted = false;
 
     this.settingsManager.bus.on('settings:musicVolume', (v) => {
       if (this._musicEl) this._musicEl.volume = this._muted ? 0 : v;
+    });
+    this.settingsManager.bus.on('settings:ambienceVolume', (v) => {
+      if (this._ambienceEl) this._ambienceEl.volume = this._muted ? 0 : v;
     });
   }
 
@@ -457,6 +470,30 @@ class AudioManager {
     this._currentMusicKey = null;
   }
 
+  /** Second, independent loop layer for weather/time-of-day ambience
+   *  (rain-ambience, morning-ambience, evening-ambience, event-music).
+   *  Gracefully does nothing until matching files exist — exactly like
+   *  playMusic, just on its own audio element so the two can overlap. */
+  playAmbience(key) {
+    if (this._ambienceKey === key) return;
+    const source = this.assetLoader.getAudio(key);
+    if (this._ambienceEl) { this._ambienceEl.pause(); this._ambienceEl = null; }
+    this._ambienceKey = key;
+    if (!source) return; // no file yet — silently does nothing, as designed
+
+    const el = source.cloneNode(true);
+    el.loop = true;
+    el.volume = this._muted ? 0 : this.settingsManager.ambienceVolume;
+    el.play().catch(() => { /* autoplay restrictions — will resume on next user gesture */ });
+    this._ambienceEl = el;
+  }
+
+  stopAmbience() {
+    if (this._ambienceEl) this._ambienceEl.pause();
+    this._ambienceEl = null;
+    this._ambienceKey = null;
+  }
+
   playSfx(key) {
     const source = this.assetLoader.getAudio(key);
     if (!source) {
@@ -474,6 +511,7 @@ class AudioManager {
   setMuted(muted) {
     this._muted = muted;
     if (this._musicEl) this._musicEl.volume = muted ? 0 : this.settingsManager.musicVolume;
+    if (this._ambienceEl) this._ambienceEl.volume = muted ? 0 : this.settingsManager.ambienceVolume;
   }
 }
 
